@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  central-manager:
+    build: .
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    networks:
+      - elevator-network
+
+  agent-1:
+    build: .
+    command: python agents/elevator_agent.py 1
+    environment:
+      - BACKEND_HOST=central-manager
+    depends_on:
+      - central-manager
+    networks:
+      - elevator-network
+    restart: on-failure
+
+  agent-2:
+    build: .
+    command: python agents/elevator_agent.py 2
+    environment:
+      - BACKEND_HOST=central-manager
+    depends_on:
+      - central-manager
+    networks:
+      - elevator-network
+    restart: on-failure
+
+  agent-3:
+    build: .
+    command: python agents/elevator_agent.py 3
+    environment:
+      - BACKEND_HOST=central-manager
+    depends_on:
+      - central-manager
+    networks:
+      - elevator-network
+    restart: on-failure
+
+networks:
+  elevator-network:
+    driver: bridge

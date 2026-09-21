@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Elevator Visual Simulation</title>
+    <style>
+        /* Base styles for the overall page layout */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 30px;
+            background-color: #1e1e2f;
+            color: #fff;
+            display: flex;
+            gap: 40px;
+        }
+
+        /* Left-side control panel styling */
+        .control-panel {
+            flex: 1;
+            background: #2a2a40;
+            padding: 25px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            max-height: 80vh;
+        }
+
+        /* Right-side simulation visualizer styling */
+        .sim-panel {
+            flex: 2;
+            background: #2a2a40;
+            padding: 25px;
+            border-radius: 12px;
+        }
+
+        h2 {
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+
+        button {
+            padding: 10px 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+            width: 100%;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button.reset {
+            background: #e74c3c;
+            margin-top: 20px;
+        }
+
+        button.reset:hover {
+            background: #c0392b;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background: #1e1e2f;
+            color: white;
+            box-sizing: border-box;
+        }
+
+        /* Building container representing the elevator shafts */
+        .building {
+            display: flex;
+            gap: 40px;
+            height: 500px;
+            padding-left: 30px;
+            position: relative;
+            border-left: 2px solid #555;
+            border-bottom: 2px solid #555;
+        }
+
+        .floor-markers {
+            position: absolute;
+            left: -25px;
+            height: 100%;
+            display: flex;
+            flex-direction: column-reverse;
+            justify-content: space-between;
+            width: 20px;
+        }
+
+        .floor-markers div {
+            font-size: 12px;
+            color: #888;
+            transform: translateY(50%);
+        }
+
+        .shaft {
+            width: 60px;
+            background: #1a1a24;
+            height: 100%;
+            position: relative;
+            border-radius: 4px;
+            border: 1px solid #333;
+            overflow: hidden;
+        }
+
+        /* Elevator car styling with transition for smooth movement */
+        .elevator {
+            width: 100%;
+            height: 10%;
+            background: #3498db;
+            position: absolute;
+            bottom: 0;
+            transition: bottom 1s linear;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            box-sizing: border-box;
+        }
+
+        .metrics {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            padding: 15px;
+            background: #1a1a24;
+            border-radius: 8px;
+        }
+
+        .metric-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #f1c40f;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            background: #1a1a24;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+
+        .tab.active {
+            background: #4CAF50;
+        }
+
+        /* Controls for triggering break and fix events */
+        .status-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+            border-top: 1px solid #444;
+            padding-top: 15px;
+        }
+
+        button.break-btn {
+            background: #e74c3c;
+            margin-top: 0;
+        }
+
+        button.break-btn:hover {
+            background: #c0392b;
+        }
+
+        button.fix-btn {
+            background: #3498db;
+            margin-top: 0;
+        }
+
+        button.fix-btn:hover {
+            background: #2980b9;
+        }
+
+        /* Red styling for broken elevator state */
+        .elevator.broken {
+            background: #e74c3c !important;
+            box-shadow: 0 0 15px rgba(231, 76, 60, 0.8) !important;
+        }
+
+        #log {
+            margin-top: 20px;
+            font-size: 0.85em;
+            color: #aaa;
+            overflow-y: auto;
+            flex: 1;
+            border-top: 1px solid #444;
+            padding-top: 10px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-entry.completed {
+            color: #4CAF50;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="control-panel">
+        <h2>Command Center</h2>
+
+        <div class="tabs">
+            <div class="tab active" id="tab-manual" onclick="switchMode('manual')">Manual Mode</div>
+            <div class="tab" id="tab-auto" onclick="switchMode('auto')">Auto Simulation</div>
+        </div>
+
+        <div id="manual-controls">
+            <div class="input-group">
+                <label>Pickup Floor (1-10)</label>
+                <input type="number" id="pickup" min="1" max="10" value="1">
+            </div>
+            <div class="input-group">
+                <label>Dropoff Floor (1-10)</label>
+                <input type="number" id="dropoff" min="1" max="10" value="7">
+            </div>
+            <button onclick="sendManualRequest()">Dispatch Request</button>
+        </div>
+
+        <div id="auto-controls" style="display: none;">
+            <p style="color: #aaa; font-size: 0.9em;">System will randomly generate passenger requests across all
+                floors.</p>
+            <button id="auto-btn" onclick="toggleAuto()">Start Simulation</button>
+        </div>
+
+        <div class="status-controls">
+            <button class="break-btn" onclick="toggleStatus(1, 'break')">Break E1</button>
+            <button class="fix-btn" onclick="toggleStatus(1, 'fix')">Fix E1</button>
+
+            <button class="break-btn" onclick="toggleStatus(2, 'break')">Break E2</button>
+            <button class="fix-btn" onclick="toggleStatus(2, 'fix')">Fix E2</button>
+
+            <button class="break-btn" onclick="toggleStatus(3, 'break')">Break E3</button>
+            <button class="fix-btn" onclick="toggleStatus(3, 'fix')">Fix E3</button>
+        </div>
+
+        <button class="reset" onclick="resetSystem()">Reset Simulation</button>
+
+        <div id="log"></div>
+    </div>
+
+    <div class="sim-panel">
+        <h2>Live Environment</h2>
+        <div class="building">
+            <div class="floor-markers">
+                <div>1</div>
+                <div>2</div>
+                <div>3</div>
+                <div>4</div>
+                <div>5</div>
+                <div>6</div>
+                <div>7</div>
+                <div>8</div>
+                <div>9</div>
+                <div>10</div>
+            </div>
+            <div class="shaft">
+                <div class="elevator" id="elev-1">E1</div>
+            </div>
+            <div class="shaft">
+                <div class="elevator" id="elev-2">E2</div>
+            </div>
+            <div class="shaft">
+                <div class="elevator" id="elev-3">E3</div>
+            </div>
+        </div>
+
+        <div class="metrics">
+            <div>Completed Requests: <br><span class="metric-value" id="completed-count">0</span></div>
+            <div>Avg Wait Time: <br><span class="metric-value" id="avg-wait">0.00</span> s</div>
+        </div>
+    </div>
+
+    <script>
+        // Establish WebSocket connection with the central manager backend
+        const ws = new WebSocket("ws://127.0.0.1:8000/ws/frontend");
+
+        // Handle incoming messages from the backend
+        ws.onmessage = function (event) {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "STATE_UPDATE") {
+                const elevator = document.getElementById(`elev-${data.elevator_id}`);
+                // Ensure the bottom position remains within the 0% to 90% boundary
+                let bottomPosition = (data.floor - 1) * 10;
+                bottomPosition = Math.max(0, Math.min(90, bottomPosition));
+                elevator.style.bottom = `${bottomPosition}%`;
+
+                // Update UI based on elevator health status
+                if (data.status === "BROKEN") {
+                    elevator.classList.add("broken");
+                    elevator.innerText = "ERR";
+                } else {
+                    elevator.classList.remove("broken");
+                    elevator.innerText = `E${data.elevator_id}`;
+                }
+            }
+            else if (data.type === "METRICS_UPDATE") {
+                document.getElementById('completed-count').innerText = data.completed;
+                document.getElementById('avg-wait').innerText = data.avg_wait;
+            }
+            else if (data.type === "LOG") {
+                logMessage(data.message);
+            }
+        };
+
+        // Utility function to display log messages in the UI
+        function logMessage(msg) {
+            const logContainer = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = "log-entry";
+            if (msg.includes("completed")) entry.classList.add("completed");
+            entry.innerText = msg;
+            logContainer.prepend(entry);
+        }
+
+        // Send a manual elevator request to the backend
+        async function sendManualRequest() {
+            const pickup = document.getElementById('pickup').value;
+            const dropoff = document.getElementById('dropoff').value;
+            if (pickup === dropoff) return alert("Pickup and Dropoff cannot be the same.");
+
+            await fetch(`http://127.0.0.1:8000/request_elevator?pickup=${pickup}&dropoff=${dropoff}`, { method: 'POST' });
+        }
+
+        // Reset the simulation state across both frontend and backend
+        async function resetSystem() {
+            if (autoInterval) toggleAuto(true);
+            document.getElementById('log').innerHTML = '';
+            await fetch(`http://127.0.0.1:8000/reset`, { method: 'POST' });
+        }
+
+        // Toggle health status of a specific elevator (break/fix)
+        async function toggleStatus(elevatorId, action) {
+            await fetch(`http://127.0.0.1:8000/${action}/${elevatorId}`, { method: 'POST' });
+        }
+
+        let autoInterval = null;
+
+        // Switch between Manual and Auto mode tabs
+        function switchMode(mode) {
+            document.getElementById('tab-manual').classList.toggle('active', mode === 'manual');
+            document.getElementById('tab-auto').classList.toggle('active', mode === 'auto');
+            document.getElementById('manual-controls').style.display = mode === 'manual' ? 'block' : 'none';
+            document.getElementById('auto-controls').style.display = mode === 'auto' ? 'block' : 'none';
+
+            if (mode === 'manual' && autoInterval) toggleAuto(true);
+        }
+
+        // Toggle the automatic generation of elevator requests
+        function toggleAuto(forceStop = false) {
+            const btn = document.getElementById('auto-btn');
+            if (autoInterval || forceStop) {
+                clearInterval(autoInterval);
+                autoInterval = null;
+                btn.innerText = "Start Simulation";
+                btn.style.background = "#4CAF50";
+            } else {
+                btn.innerText = "Stop Simulation";
+                btn.style.background = "#e67e22";
+
+                autoInterval = setInterval(() => {
+                    let pickup = Math.floor(Math.random() * 10) + 1;
+                    let dropoff = Math.floor(Math.random() * 10) + 1;
+                    while (pickup === dropoff) dropoff = Math.floor(Math.random() * 10) + 1;
+
+                    fetch(`http://127.0.0.1:8000/request_elevator?pickup=${pickup}&dropoff=${dropoff}`, { method: 'POST' });
+                }, 4000);
+            }
+        }
+    </script>
+</body>
+
+</html>
