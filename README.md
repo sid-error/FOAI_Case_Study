@@ -4,7 +4,7 @@
 Kalyani H Karuvelil - CB.SC.U4CSE23423
 Madhavan G Menon    - CB.SC.U4CSE23428
 Sidharth S Nair     - CB.SC.U4CSE23443
-Soundarya Satal     - CB.SC.U4CSE23447
+Soundarya Satalgoan     - CB.SC.U4CSE23447
 
 ---
 
