@@ -1,11 +1,22 @@
 version: '3.8'
 
 services:
-  central-manager:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - elevator-network
+
+  api-gateway:
     build: .
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
     networks:
       - elevator-network
 
@@ -13,9 +24,9 @@ services:
     build: .
     command: python agents/elevator_agent.py 1
     environment:
-      - BACKEND_HOST=central-manager
+      - REDIS_HOST=redis
     depends_on:
-      - central-manager
+      - redis
     networks:
       - elevator-network
     restart: on-failure
@@ -24,9 +35,9 @@ services:
     build: .
     command: python agents/elevator_agent.py 2
     environment:
-      - BACKEND_HOST=central-manager
+      - REDIS_HOST=redis
     depends_on:
-      - central-manager
+      - redis
     networks:
       - elevator-network
     restart: on-failure
@@ -35,9 +46,9 @@ services:
     build: .
     command: python agents/elevator_agent.py 3
     environment:
-      - BACKEND_HOST=central-manager
+      - REDIS_HOST=redis
     depends_on:
-      - central-manager
+      - redis
     networks:
       - elevator-network
     restart: on-failure

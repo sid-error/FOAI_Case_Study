@@ -4,12 +4,30 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables
 .env
+.env.local
+
+# Docker
+.dockerignore
+docker-compose.override.yml
 
 # OS generated files
 Thumbs.db
 .DS_Store
+*.swp
+*~
 
 # IDE directories
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -1,15 +1,15 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict
+from typing import List
 import json
 import uuid
 import asyncio
 import time
+import redis.asyncio as redis
+import os
 
-# Initialize the FastAPI application
-app = FastAPI(title="Smart Elevator Central Manager")
+app = FastAPI(title="Smart Elevator API Gateway")
 
-# Configure CORS to allow cross-origin requests from the frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,76 +18,82 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global metrics and state tracking variables
-active_auctions: Dict[str, List[dict]] = {}
-request_times: Dict[str, float] = {}  
-total_wait_time = 0.0
-completed_requests = 0
+REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
+redis_client = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
 
 class ConnectionManager:
-    """Manages active WebSocket connections for both elevators and frontend clients."""
     def __init__(self):
-        self.active_elevators: List[WebSocket] = []
         self.frontend_clients: List[WebSocket] = []
-
-    async def connect_elevator(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_elevators.append(websocket)
 
     async def connect_frontend(self, websocket: WebSocket):
         await websocket.accept()
         self.frontend_clients.append(websocket)
 
-    def disconnect_elevator(self, websocket: WebSocket):
-        if websocket in self.active_elevators:
-            self.active_elevators.remove(websocket)
-
     def disconnect_frontend(self, websocket: WebSocket):
         if websocket in self.frontend_clients:
             self.frontend_clients.remove(websocket)
 
-    async def broadcast_to_elevators(self, payload: dict):
-        for connection in self.active_elevators:
-            await connection.send_json(payload)
-
     async def broadcast_to_frontend(self, payload: dict):
+        # We need to handle disconnected clients
+        disconnected = []
         for connection in self.frontend_clients:
-            await connection.send_json(payload)
+            try:
+                await connection.send_json(payload)
+            except Exception:
+                disconnected.append(connection)
+        for d in disconnected:
+            self.disconnect_frontend(d)
 
 manager = ConnectionManager()
 
-async def resolve_auction(request_id: str):
-    """
-    Resolve a bidding auction by assigning the task to the elevator 
-    with the lowest bid cost. Handles edge cases like all elevators broken.
-    """
-    bids = active_auctions.get(request_id, [])
-    if not bids:
-        return
-    
-    winning_bid = min(bids, key=lambda x: x["cost"])
-    
-    if winning_bid["cost"] >= 999999:
-        await manager.broadcast_to_frontend({
-            "type": "LOG", 
-            "message": f"CRITICAL: Request {request_id} failed. No active elevators."
-        })
-        del active_auctions[request_id]
-        return
+# Global metrics
+request_times = {}
+total_wait_time = 0.0
+completed_requests = 0
 
-    winner_ws = winning_bid["ws"]
-    await winner_ws.send_json({
-        "type": "TASK_ASSIGNED",
-        "request_id": request_id
-    })
+async def redis_listener():
+    """Background task to listen to Redis and forward to frontend."""
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe("elevator_network", "elevator_logs")
+    global total_wait_time, completed_requests
     
-    del active_auctions[request_id]
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            channel = message["channel"]
+            try:
+                data = json.loads(message["data"])
+                
+                if channel == "elevator_logs":
+                    await manager.broadcast_to_frontend({
+                        "type": "LOG",
+                        "message": data["message"]
+                    })
+                
+                elif channel == "elevator_network":
+                    msg_type = data.get("type")
+                    if msg_type == "STATE_UPDATE":
+                        await manager.broadcast_to_frontend(data)
+                    elif msg_type == "TASK_COMPLETED":
+                        req_id = data.get("request_id")
+                        if req_id in request_times:
+                            wait_time = round(time.time() - request_times[req_id], 2)
+                            total_wait_time += wait_time
+                            completed_requests += 1
+                            
+                            await manager.broadcast_to_frontend({
+                                "type": "METRICS_UPDATE",
+                                "completed": completed_requests,
+                                "avg_wait": round((total_wait_time / completed_requests), 2)
+                            })
+            except Exception as e:
+                print(f"Error processing redis message: {e}")
 
-# --- WebSocket Endpoints ---
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(redis_listener())
 
 @app.websocket("/ws/frontend")
 async def frontend_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for the frontend UI to receive state updates and logs."""
     await manager.connect_frontend(websocket)
     try:
         while True:
@@ -95,117 +101,57 @@ async def frontend_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect_frontend(websocket)
 
-@app.websocket("/ws/elevator/{elevator_id}")
-async def elevator_endpoint(websocket: WebSocket, elevator_id: int):
-    """WebSocket endpoint for elevator agents to connect, bid on tasks, and send updates."""
-    await manager.connect_elevator(websocket)
-    global total_wait_time, completed_requests
-    try:
-        while True:
-            data = await websocket.receive_json()
-            
-            if data.get("type") == "BID":
-                req_id = data["request_id"]
-                if req_id not in active_auctions:
-                    active_auctions[req_id] = []
-                    
-                active_auctions[req_id].append({
-                    "elevator_id": elevator_id, 
-                    "cost": data["bid_cost"], 
-                    "ws": websocket
-                })
-                
-                if len(active_auctions[req_id]) == len(manager.active_elevators):
-                    await resolve_auction(req_id)
-                    
-            elif data.get("type") == "STATE_UPDATE":
-                await manager.broadcast_to_frontend(data)
-
-            elif data.get("type") == "TASK_COMPLETED":
-                req_id = data["request_id"]
-                if req_id in request_times:
-                    wait_time = round(time.time() - request_times[req_id], 2)
-                    total_wait_time += wait_time
-                    completed_requests += 1
-                    
-                    await manager.broadcast_to_frontend({
-                        "type": "METRICS_UPDATE",
-                        "completed": completed_requests,
-                        "avg_wait": round((total_wait_time / completed_requests), 2)
-                    })
-                    
-                    await manager.broadcast_to_frontend({
-                        "type": "LOG",
-                        "message": f"Request {req_id} completed (Wait: {wait_time}s)"
-                    })
-
-    except WebSocketDisconnect:
-        manager.disconnect_elevator(websocket)
-
-# --- HTTP Endpoints ---
-
 @app.post("/request_elevator")
-async def request_elevator(pickup: int, dropoff: int):
-    """REST endpoint to manually trigger a new elevator request and initiate an auction."""
+async def request_elevator(pickup: int, dropoff: int, people: int = 1):
     request_id = "REQ-" + str(uuid.uuid4())[:4].upper() 
     request_times[request_id] = time.time()
     
-    await manager.broadcast_to_elevators({
+    # Publish to Redis instead of managing auction
+    await redis_client.publish("elevator_network", json.dumps({
         "type": "BID_REQUEST",
         "request_id": request_id,
         "pickup": pickup,
-        "dropoff": dropoff
-    })
+        "dropoff": dropoff,
+        "people": people
+    }))
     
-    active_auctions[request_id] = []
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    log_str = f"[{timestamp}] [API_GATEWAY] -> [BROADCAST] | BID_REQUEST: {{\"request_id\": \"{request_id}\", \"pickup\": {pickup}, \"dropoff\": {dropoff}, \"people\": {people}}}"
+    print(log_str, flush=True)
+    await redis_client.publish("elevator_logs", json.dumps({"message": log_str}))
     
-    await manager.broadcast_to_frontend({
-        "type": "LOG",
-        "message": f"Broadcast: {request_id} (Floor {pickup} -> {dropoff})"
-    })
-    return {"message": "Auction started", "request_id": request_id}
+    return {"message": "Request broadcasted", "request_id": request_id}
 
 @app.post("/reset")
 async def reset_system():
-    """REST endpoint to reset the system state, metrics, and connected elevator agents."""
-    global total_wait_time, completed_requests, active_auctions, request_times
+    global total_wait_time, completed_requests, request_times
     total_wait_time = 0.0
     completed_requests = 0
-    active_auctions.clear()
     request_times.clear()
     
-    await manager.broadcast_to_elevators({"type": "RESET_AGENT"})
+    await redis_client.publish("elevator_network", json.dumps({"type": "RESET_AGENT"}))
     await manager.broadcast_to_frontend({
         "type": "METRICS_UPDATE",
         "completed": 0,
         "avg_wait": 0.00
     })
-    return {"message": "System reset fully"}
+    return {"message": "System reset"}
 
 @app.post("/break/{elevator_id}")
 async def break_elevator(elevator_id: int):
-    """REST endpoint to simulate a critical failure in a specific elevator."""
-    await manager.broadcast_to_elevators({
+    await redis_client.publish("elevator_network", json.dumps({
         "type": "STATUS_CHANGE",
         "target": elevator_id,
         "status": "BROKEN"
-    })
-    await manager.broadcast_to_frontend({
-        "type": "LOG",
-        "message": f"Elevator {elevator_id} encountered a critical failure."
-    })
-    return {"message": f"Elevator {elevator_id} broken"}
+    }))
+    return {"message": f"Elevator {elevator_id} break signal sent"}
 
 @app.post("/fix/{elevator_id}")
 async def fix_elevator(elevator_id: int):
-    """REST endpoint to repair a broken elevator and bring it back online."""
-    await manager.broadcast_to_elevators({
+    await redis_client.publish("elevator_network", json.dumps({
         "type": "STATUS_CHANGE",
         "target": elevator_id,
         "status": "ACTIVE"
-    })
-    await manager.broadcast_to_frontend({
-        "type": "LOG",
-        "message": f"Elevator {elevator_id} has been repaired and is online."
-    })
-    return {"message": f"Elevator {elevator_id} fixed"}
+    }))
+    return {"message": f"Elevator {elevator_id} fix signal sent"}

@@ -208,14 +208,27 @@
             box-shadow: 0 0 15px rgba(231, 76, 60, 0.8) !important;
         }
 
+        .log-panel {
+            flex: 1.5;
+            background: #2a2a40;
+            padding: 25px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            max-height: 80vh;
+        }
+
         #log {
-            margin-top: 20px;
+            margin-top: 15px;
             font-size: 0.85em;
             color: #aaa;
             overflow-y: auto;
             flex: 1;
-            border-top: 1px solid #444;
-            padding-top: 10px;
+            background: #1e1e2f;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Courier New', Courier, monospace;
         }
 
         .log-entry {
@@ -247,6 +260,10 @@
                 <label>Dropoff Floor (1-10)</label>
                 <input type="number" id="dropoff" min="1" max="10" value="7">
             </div>
+            <div class="input-group">
+                <label>Number of People (1-5)</label>
+                <input type="number" id="people" min="1" max="5" value="1">
+            </div>
             <button onclick="sendManualRequest()">Dispatch Request</button>
         </div>
 
@@ -268,8 +285,6 @@
         </div>
 
         <button class="reset" onclick="resetSystem()">Reset Simulation</button>
-
-        <div id="log"></div>
     </div>
 
     <div class="sim-panel">
@@ -302,6 +317,11 @@
             <div>Completed Requests: <br><span class="metric-value" id="completed-count">0</span></div>
             <div>Avg Wait Time: <br><span class="metric-value" id="avg-wait">0.00</span> s</div>
         </div>
+    </div>
+
+    <div class="log-panel">
+        <h2>Network Log Console</h2>
+        <div id="log"></div>
     </div>
 
     <script>
@@ -337,12 +357,36 @@
             }
         };
 
+        const logColors = ['#e74c3c', '#f1c40f', '#2ecc71', '#3498db'];
+        let requestColorMap = {};
+        let colorIndex = 0;
+
         // Utility function to display log messages in the UI
         function logMessage(msg) {
             const logContainer = document.getElementById('log');
             const entry = document.createElement('div');
             entry.className = "log-entry";
-            if (msg.includes("completed")) entry.classList.add("completed");
+            
+            let reqId = null;
+            const matchJson = msg.match(/"request_id"\s*:\s*"([^"]+)"/);
+            const matchText = msg.match(/Request (REQ-[A-Z0-9]+) completed/);
+            
+            if (matchJson) {
+                reqId = matchJson[1];
+            } else if (matchText) {
+                reqId = matchText[1];
+            }
+
+            if (reqId) {
+                if (!requestColorMap[reqId]) {
+                    requestColorMap[reqId] = logColors[colorIndex % logColors.length];
+                    colorIndex++;
+                }
+                entry.style.color = requestColorMap[reqId];
+            } else if (msg.includes("completed")) {
+                entry.classList.add("completed");
+            }
+
             entry.innerText = msg;
             logContainer.prepend(entry);
         }
@@ -351,9 +395,10 @@
         async function sendManualRequest() {
             const pickup = document.getElementById('pickup').value;
             const dropoff = document.getElementById('dropoff').value;
+            const people = document.getElementById('people').value;
             if (pickup === dropoff) return alert("Pickup and Dropoff cannot be the same.");
 
-            await fetch(`http://127.0.0.1:8000/request_elevator?pickup=${pickup}&dropoff=${dropoff}`, { method: 'POST' });
+            await fetch(`http://127.0.0.1:8000/request_elevator?pickup=${pickup}&dropoff=${dropoff}&people=${people}`, { method: 'POST' });
         }
 
         // Reset the simulation state across both frontend and backend
@@ -395,9 +440,10 @@
                 autoInterval = setInterval(() => {
                     let pickup = Math.floor(Math.random() * 10) + 1;
                     let dropoff = Math.floor(Math.random() * 10) + 1;
+                    let people = Math.floor(Math.random() * 5) + 1;
                     while (pickup === dropoff) dropoff = Math.floor(Math.random() * 10) + 1;
 
-                    fetch(`http://127.0.0.1:8000/request_elevator?pickup=${pickup}&dropoff=${dropoff}`, { method: 'POST' });
+                    fetch(`http://127.0.0.1:8000/request_elevator?pickup=${pickup}&dropoff=${dropoff}&people=${people}`, { method: 'POST' });
                 }, 4000);
             }
         }

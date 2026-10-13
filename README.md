@@ -1,85 +1,53 @@
-# Smart Elevator Group Controller - Multi-Agent System
-
-## Team Members
-Kalyani H Karuvelil - CB.SC.U4CSE23423
-Madhavan G Menon    - CB.SC.U4CSE23428
-Sidharth S Nair     - CB.SC.U4CSE23443
-Soundarya Satal     - CB.SC.U4CSE23447
-
----
+# Smart Elevator Group Controller - Decentralized P2P Multi-Agent System
 
 ## Abstract
-This project simulates a 10-story building with three autonomous elevators governed by a decentralized, multi-agent architecture. Instead of relying on a monolithic central routing algorithm to coordinate movement, the system utilizes the **Contract Net Protocol (CNP)** and a localized **SCAN directional heuristic** to minimize passenger wait times through real-time bidding and spatial task delegation.
+This project simulates a 10-story building with three autonomous elevators governed by a **fully decentralized, Peer-to-Peer (P2P)** multi-agent architecture. The previous central auctioneer has been removed in favor of a distributed consensus model over a lightweight Redis Pub/Sub message broker.
 
 ### The Agents & Multi-Agent Mechanics
-*   **Central Managing Agent (Auctioneer):** A FastAPI backend that listens for incoming passenger requests, broadcasts "Call for Proposals" to the active elevator network, and resolves auctions by assigning tasks to the lowest bidder.
-*   **Elevator Agents (Bidders):** Autonomous Python agents that track their own physical state (current floor, direction, operational status, and capacity). 
-*   **Bid Calculation:** When a request is broadcast, elevators calculate a "cost" to take the job. An elevator already heading in the direction of the passenger and passing their floor bids very low. An elevator moving away bids exceptionally high.
-*   **Simulation Metric:** The primary performance metric is the rolling average passenger wait time, calculated from the moment a request is initiated to the moment the elevator doors open at the destination.
+*   **Decentralized Elevator Agents:** Autonomous Python agents that track their own physical state (current floor, direction, operational status, queue, and physical capacity). 
+*   **P2P Bidding & Consensus:** When a passenger request is dropped into the network, agents calculate their bids based on the SCAN directional heuristic. They broadcast their bids directly to each other. Agents wait for a short consensus window to collect all bids. If an agent determines it has the lowest bid, it claims the task.
+*   **Resource Caps & Physical Constraints:** 
+    *   **Queue Cap:** Elevators can only hold up to 10 active tasks. If exceeded, they abstain from bidding (bid 999999).
+    *   **Physical Capacity:** Elevators have a physical limit of 20 people. Capacity dynamically updates only when the physical doors open at pickup and dropoff. If a new request exceeds available capacity, the agent abstains from bidding.
+*   **API Gateway (No Logic):** A FastAPI service simply forwards requests from the UI into the Redis network and streams the live P2P network logs back to the frontend dashboard.
+*   **Transparent Network Logs:** To prove the decentralized communication, every network event (broadcasts, bids, claims) is streamed in real-time to the dashboard console.
 
 ### Core Features
 *   **Real-Time Visual Simulation:** A live HTML5 canvas interface rendering physical agent positions and system-wide metrics.
-*   **Dual Operation Modes:** Manually dispatch requests from specific floors or trigger the Auto Simulation for continuous, randomized system traffic.
+*   **Dual Operation Modes:** Manually dispatch requests from specific floors (including passenger count) or trigger the Auto Simulation for continuous, randomized system traffic.
 *   **Environmental Shocks:** Live fault-injection controls that allow you to instantly "Break" or "Fix" specific agents, forcing the surviving multi-agent network to dynamically adapt and shoulder the workload.
-
----
-
-## Prerequisites
-Before you begin, ensure you have the following installed on your system:
-*   **Python 3.10 or higher**
-*   **Docker Desktop** (Required only for Docker deployment)
-*   **Git** (Optional, for cloning the repository)
 
 ---
 
 ## Setup and Installation
 
-### Option 1: Docker Deployment (Recommended)
-This approach guarantees an isolated environment and orchestrates the backend cluster automatically.
+### Docker Deployment (Mandatory for P2P Cluster)
+Because this is a distributed system relying on a Redis message broker and multiple independent agent containers, Docker Compose is the required method for deployment.
 
 1. Ensure Docker Desktop is running on your machine.
 2. Open Windows PowerShell and navigate to the project root directory:
    ```powershell
    cd path\to\FOAI_Case_Study
+   ```
 3. Build and launch the cluster using Docker Compose:
-   docker-compose up --build
-
-### Option 2: Local Deployment
-
-1. Open Windows PowerShell and navigate to the project root directory:
    ```powershell
-   cd path\to\FOAI_Case_Study
-2. Create and activate a Python virtual environment:
-   python -m venv venv
-   venv\Scripts\activate
-3. Install the required Python dependencies:
-   pip install -r requirements.txt
+   docker-compose up --build
+   ```
 
 ---
 
 ## How to Run
-If you used Option 1 (Docker), the backend cluster is already running. Skip to Step 3. If you used Option 2 (Local Deployment), you must manually start the network components:
 
-1. Start the Central Manager
-In your active PowerShell terminal, start the FastAPI server:
-uvicorn backend.main:app --host 127.0.0.1 --port 8000
+1. **Launch the Backend Cluster:** Run `docker-compose up --build` as shown above. This will start:
+   - Redis Message Broker
+   - API/WebSocket Gateway
+   - Agent 1, Agent 2, Agent 3
 
-2. Start the Elevator Agents
-Open three new separate PowerShell tabs. In each tab, navigate to the project directory, activate the virtual environment, and start an agent with a unique ID (1, 2, and 3):
-Tab 1:
-cd path\to\FOAI_Case_Study
-venv\Scripts\activate
-python agents\elevator_agent.py 1
-Tab2:
-cd path\to\FOAI_Case_Study
-venv\Scripts\activate
-python agents\elevator_agent.py 2
-Tab3:
-cd path\to\FOAI_Case_Study
-venv\Scripts\activate
-python agents\elevator_agent.py 3
+2. **Launch the Frontend Simulation:**
+   Open your standard File Explorer and navigate to `FOAI_Case_Study\frontend\`. Double-click the `index.html` file to open it in any modern web browser (Chrome, Edge, Firefox). The dashboard will automatically connect to the API Gateway via WebSockets.
 
-3. Launch the Frontend Simulation
-Open your standard File Explorer and navigate to FOAI_Case_Study\frontend\. Double-click the index.html file to open it in any modern web browser (Chrome, Edge, Firefox). The dashboard will automatically connect to the backend via WebSockets. You can now use the Command Center on the left to toggle between Manual and Auto Simulation modes, trigger system resets, or inject environmental shocks.
-
----
+3. **Interact with the System:**
+   - Use the **Command Center** to dispatch requests manually. You can specify Pickup, Dropoff, and the Number of People.
+   - Watch the **Agent Network Log** in real-time to see the agents broadcasting bids and resolving the auction autonomously.
+   - Toggle **Auto Simulation** to generate continuous traffic.
+   - Click **Break E1** to simulate a critical failure and watch the other agents pick up the slack.
